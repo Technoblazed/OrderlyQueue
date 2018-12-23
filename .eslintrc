@@ -1,0 +1,43 @@
+{
+  "env": {
+    "browser": true,
+    "commonjs": false,
+    "es6": true,
+    "jquery": true,
+    "node": true
+  },
+  "extends": "airbnb-base",
+  "parser": "babel-eslint",
+  "rules": {
+    "arrow-parens": "error",
+    "comma-dangle": [
+      "error",
+      "never"
+    ],
+    "comma-spacing": [
+      "error",
+      {
+        "before": false,
+        "after": true
+      }
+    ],
+    "global-require": "off",
+    "no-bitwise": "off",
+    "no-console": "off",
+    "import/no-dynamic-require": "off",
+    "no-param-reassign": [
+      "error",
+      {
+        "props": false
+      }
+    ],
+    "space-before-function-paren": [
+      "error",
+      {
+        "anonymous": "never",
+        "named": "never",
+        "asyncArrow": "never"
+      }
+    ]
+  }
+}

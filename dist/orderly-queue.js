@@ -1,47 +1,20 @@
-'use strict';
-
-function __asyncGen(g) {
-  var q = [],
-      T = ["next", "throw", "return"],
-      I = {};for (var i = 0; i < 3; i++) {
-    I[T[i]] = a.bind(0, i);
-  }I[Symbol ? Symbol.asyncIterator || (Symbol.asyncIterator = Symbol()) : "@@asyncIterator"] = function () {
-    return this;
-  };function a(t, v) {
-    return new Promise(function (s, j) {
-      q.push([s, j, v, t]);q.length === 1 && c(v, t);
-    });
-  }function c(v, t) {
-    try {
-      var r = g[T[t | 0]](v),
-          w = r.value && r.value.__await;w ? Promise.resolve(w).then(c, d) : n(r, 0);
-    } catch (e) {
-      n(e, 1);
-    }
-  }function d(e) {
-    c(e, 1);
-  }function n(r, s) {
-    q.shift()[s](r);q.length && c(q[0][2], q[0][3]);
-  }return I;
-}
 
 /**
- * Copyright (c) 2014, Facebook, Inc.
- * All rights reserved.
+ * Copyright (c) 2014-present, Facebook, Inc.
  *
- * This source code is licensed under the BSD-style license found in the
- * https://raw.github.com/facebook/regenerator/master/LICENSE file. An
- * additional grant of patent rights can be found in the PATENTS file in
- * the same directory.
+ * This source code is licensed under the MIT license found in the
+ * LICENSE file in the root directory of this source tree.
  */
 
 !(function(global) {
   "use strict";
 
-  var hasOwn = Object.prototype.hasOwnProperty;
+  var Op = Object.prototype;
+  var hasOwn = Op.hasOwnProperty;
   var undefined; // More compressible than void 0.
   var $Symbol = typeof Symbol === "function" ? Symbol : {};
   var iteratorSymbol = $Symbol.iterator || "@@iterator";
+  var asyncIteratorSymbol = $Symbol.asyncIterator || "@@asyncIterator";
   var toStringTagSymbol = $Symbol.toStringTag || "@@toStringTag";
 
   var inModule = typeof module === "object";
@@ -110,10 +83,29 @@ function __asyncGen(g) {
   function GeneratorFunction() {}
   function GeneratorFunctionPrototype() {}
 
-  var Gp = GeneratorFunctionPrototype.prototype = Generator.prototype;
+  // This is a polyfill for %IteratorPrototype% for environments that
+  // don't natively support it.
+  var IteratorPrototype = {};
+  IteratorPrototype[iteratorSymbol] = function () {
+    return this;
+  };
+
+  var getProto = Object.getPrototypeOf;
+  var NativeIteratorPrototype = getProto && getProto(getProto(values([])));
+  if (NativeIteratorPrototype &&
+      NativeIteratorPrototype !== Op &&
+      hasOwn.call(NativeIteratorPrototype, iteratorSymbol)) {
+    // This environment has a native %IteratorPrototype%; use it instead
+    // of the polyfill.
+    IteratorPrototype = NativeIteratorPrototype;
+  }
+
+  var Gp = GeneratorFunctionPrototype.prototype =
+    Generator.prototype = Object.create(IteratorPrototype);
   GeneratorFunction.prototype = Gp.constructor = GeneratorFunctionPrototype;
   GeneratorFunctionPrototype.constructor = GeneratorFunction;
-  GeneratorFunctionPrototype[toStringTagSymbol] = GeneratorFunction.displayName = "GeneratorFunction";
+  GeneratorFunctionPrototype[toStringTagSymbol] =
+    GeneratorFunction.displayName = "GeneratorFunction";
 
   // Helper for defining the .next, .throw, and .return methods of the
   // Iterator interface in terms of a single ._invoke method.
@@ -150,16 +142,11 @@ function __asyncGen(g) {
 
   // Within the body of any async function, `await x` is transformed to
   // `yield regeneratorRuntime.awrap(x)`, so that the runtime can test
-  // `value instanceof AwaitArgument` to determine if the yielded value is
-  // meant to be awaited. Some may consider the name of this method too
-  // cutesy, but they are curmudgeons.
+  // `hasOwn.call(value, "__await")` to determine if the yielded value is
+  // meant to be awaited.
   runtime.awrap = function(arg) {
-    return new AwaitArgument(arg);
+    return { __await: arg };
   };
-
-  function AwaitArgument(arg) {
-    this.arg = arg;
-  }
 
   function AsyncIterator(generator) {
     function invoke(method, arg, resolve, reject) {
@@ -169,8 +156,10 @@ function __asyncGen(g) {
       } else {
         var result = record.arg;
         var value = result.value;
-        if (value instanceof AwaitArgument) {
-          return Promise.resolve(value.arg).then(function(value) {
+        if (value &&
+            typeof value === "object" &&
+            hasOwn.call(value, "__await")) {
+          return Promise.resolve(value.__await).then(function(value) {
             invoke("next", value, resolve, reject);
           }, function(err) {
             invoke("throw", err, resolve, reject);
@@ -197,10 +186,6 @@ function __asyncGen(g) {
           resolve(result);
         }, reject);
       }
-    }
-
-    if (typeof process === "object" && process.domain) {
-      invoke = process.domain.bind(invoke);
     }
 
     var previousPromise;
@@ -239,6 +224,10 @@ function __asyncGen(g) {
   }
 
   defineIteratorMethods(AsyncIterator.prototype);
+  AsyncIterator.prototype[asyncIteratorSymbol] = function () {
+    return this;
+  };
+  runtime.AsyncIterator = AsyncIterator;
 
   // Note that simple async functions are implemented on top of
   // AsyncIterator objects; they just return a Promise for the value of
@@ -273,90 +262,34 @@ function __asyncGen(g) {
         return doneResult();
       }
 
+      context.method = method;
+      context.arg = arg;
+
       while (true) {
         var delegate = context.delegate;
         if (delegate) {
-          if (method === "return" ||
-              (method === "throw" && delegate.iterator[method] === undefined)) {
-            // A return or throw (when the delegate iterator has no throw
-            // method) always terminates the yield* loop.
-            context.delegate = null;
-
-            // If the delegate iterator has a return method, give it a
-            // chance to clean up.
-            var returnMethod = delegate.iterator["return"];
-            if (returnMethod) {
-              var record = tryCatch(returnMethod, delegate.iterator, arg);
-              if (record.type === "throw") {
-                // If the return method threw an exception, let that
-                // exception prevail over the original return or throw.
-                method = "throw";
-                arg = record.arg;
-                continue;
-              }
-            }
-
-            if (method === "return") {
-              // Continue with the outer return, now that the delegate
-              // iterator has been terminated.
-              continue;
-            }
+          var delegateResult = maybeInvokeDelegate(delegate, context);
+          if (delegateResult) {
+            if (delegateResult === ContinueSentinel) continue;
+            return delegateResult;
           }
-
-          var record = tryCatch(
-            delegate.iterator[method],
-            delegate.iterator,
-            arg
-          );
-
-          if (record.type === "throw") {
-            context.delegate = null;
-
-            // Like returning generator.throw(uncaught), but without the
-            // overhead of an extra function call.
-            method = "throw";
-            arg = record.arg;
-            continue;
-          }
-
-          // Delegate generator ran and handled its own exceptions so
-          // regardless of what the method was, we continue as if it is
-          // "next" with an undefined arg.
-          method = "next";
-          arg = undefined;
-
-          var info = record.arg;
-          if (info.done) {
-            context[delegate.resultName] = info.value;
-            context.next = delegate.nextLoc;
-          } else {
-            state = GenStateSuspendedYield;
-            return info;
-          }
-
-          context.delegate = null;
         }
 
-        if (method === "next") {
+        if (context.method === "next") {
           // Setting context._sent for legacy support of Babel's
           // function.sent implementation.
-          context.sent = context._sent = arg;
+          context.sent = context._sent = context.arg;
 
-        } else if (method === "throw") {
+        } else if (context.method === "throw") {
           if (state === GenStateSuspendedStart) {
             state = GenStateCompleted;
-            throw arg;
+            throw context.arg;
           }
 
-          if (context.dispatchException(arg)) {
-            // If the dispatched exception was caught by a catch block,
-            // then let that catch block handle the exception normally.
-            method = "next";
-            arg = undefined;
-          }
+          context.dispatchException(context.arg);
 
-        } else if (method === "return") {
-          context.abrupt("return", arg);
+        } else if (context.method === "return") {
+          context.abrupt("return", context.arg);
         }
 
         state = GenStateExecuting;
@@ -369,41 +302,122 @@ function __asyncGen(g) {
             ? GenStateCompleted
             : GenStateSuspendedYield;
 
-          var info = {
+          if (record.arg === ContinueSentinel) {
+            continue;
+          }
+
+          return {
             value: record.arg,
             done: context.done
           };
 
-          if (record.arg === ContinueSentinel) {
-            if (context.delegate && method === "next") {
-              // Deliberately forget the last sent value so that we don't
-              // accidentally pass it on to the delegate.
-              arg = undefined;
-            }
-          } else {
-            return info;
-          }
-
         } else if (record.type === "throw") {
           state = GenStateCompleted;
           // Dispatch the exception by looping back around to the
-          // context.dispatchException(arg) call above.
-          method = "throw";
-          arg = record.arg;
+          // context.dispatchException(context.arg) call above.
+          context.method = "throw";
+          context.arg = record.arg;
         }
       }
     };
+  }
+
+  // Call delegate.iterator[context.method](context.arg) and handle the
+  // result, either by returning a { value, done } result from the
+  // delegate iterator, or by modifying context.method and context.arg,
+  // setting context.delegate to null, and returning the ContinueSentinel.
+  function maybeInvokeDelegate(delegate, context) {
+    var method = delegate.iterator[context.method];
+    if (method === undefined) {
+      // A .throw or .return when the delegate iterator has no .throw
+      // method always terminates the yield* loop.
+      context.delegate = null;
+
+      if (context.method === "throw") {
+        if (delegate.iterator.return) {
+          // If the delegate iterator has a return method, give it a
+          // chance to clean up.
+          context.method = "return";
+          context.arg = undefined;
+          maybeInvokeDelegate(delegate, context);
+
+          if (context.method === "throw") {
+            // If maybeInvokeDelegate(context) changed context.method from
+            // "return" to "throw", let that override the TypeError below.
+            return ContinueSentinel;
+          }
+        }
+
+        context.method = "throw";
+        context.arg = new TypeError(
+          "The iterator does not provide a 'throw' method");
+      }
+
+      return ContinueSentinel;
+    }
+
+    var record = tryCatch(method, delegate.iterator, context.arg);
+
+    if (record.type === "throw") {
+      context.method = "throw";
+      context.arg = record.arg;
+      context.delegate = null;
+      return ContinueSentinel;
+    }
+
+    var info = record.arg;
+
+    if (! info) {
+      context.method = "throw";
+      context.arg = new TypeError("iterator result is not an object");
+      context.delegate = null;
+      return ContinueSentinel;
+    }
+
+    if (info.done) {
+      // Assign the result of the finished delegate to the temporary
+      // variable specified by delegate.resultName (see delegateYield).
+      context[delegate.resultName] = info.value;
+
+      // Resume execution at the desired location (see delegateYield).
+      context.next = delegate.nextLoc;
+
+      // If context.method was "throw" but the delegate handled the
+      // exception, let the outer generator proceed normally. If
+      // context.method was "next", forget context.arg since it has been
+      // "consumed" by the delegate iterator. If context.method was
+      // "return", allow the original .return call to continue in the
+      // outer generator.
+      if (context.method !== "return") {
+        context.method = "next";
+        context.arg = undefined;
+      }
+
+    } else {
+      // Re-yield the result returned by the delegate method.
+      return info;
+    }
+
+    // The delegate iterator is finished, so forget it and continue with
+    // the outer generator.
+    context.delegate = null;
+    return ContinueSentinel;
   }
 
   // Define Generator.prototype.{next,throw,return} in terms of the
   // unified ._invoke helper method.
   defineIteratorMethods(Gp);
 
+  Gp[toStringTagSymbol] = "Generator";
+
+  // A Generator should always return itself as the iterator object when the
+  // @@iterator function is called on it. Some browsers' implementations of the
+  // iterator prototype chain incorrectly implement this, causing the Generator
+  // object to not be returned from this call. This ensures that doesn't happen.
+  // See https://github.com/facebook/regenerator/issues/274 for more details.
   Gp[iteratorSymbol] = function() {
     return this;
   };
-
-  Gp[toStringTagSymbol] = "Generator";
 
   Gp.toString = function() {
     return "[object Generator]";
@@ -519,6 +533,9 @@ function __asyncGen(g) {
       this.done = false;
       this.delegate = null;
 
+      this.method = "next";
+      this.arg = undefined;
+
       this.tryEntries.forEach(resetTryEntry);
 
       if (!skipTempReset) {
@@ -555,7 +572,15 @@ function __asyncGen(g) {
         record.type = "throw";
         record.arg = exception;
         context.next = loc;
-        return !!caught;
+
+        if (caught) {
+          // If the dispatched exception was caught by a catch block,
+          // then let that catch block handle the exception normally.
+          context.method = "next";
+          context.arg = undefined;
+        }
+
+        return !! caught;
       }
 
       for (var i = this.tryEntries.length - 1; i >= 0; --i) {
@@ -623,12 +648,12 @@ function __asyncGen(g) {
       record.arg = arg;
 
       if (finallyEntry) {
+        this.method = "next";
         this.next = finallyEntry.finallyLoc;
-      } else {
-        this.complete(record);
+        return ContinueSentinel;
       }
 
-      return ContinueSentinel;
+      return this.complete(record);
     },
 
     complete: function(record, afterLoc) {
@@ -640,11 +665,14 @@ function __asyncGen(g) {
           record.type === "continue") {
         this.next = record.arg;
       } else if (record.type === "return") {
-        this.rval = record.arg;
+        this.rval = this.arg = record.arg;
+        this.method = "return";
         this.next = "end";
       } else if (record.type === "normal" && afterLoc) {
         this.next = afterLoc;
       }
+
+      return ContinueSentinel;
     },
 
     finish: function(finallyLoc) {
@@ -683,70 +711,128 @@ function __asyncGen(g) {
         nextLoc: nextLoc
       };
 
+      if (this.method === "next") {
+        // Deliberately forget the last sent value so that we don't
+        // accidentally pass it on to the delegate.
+        this.arg = undefined;
+      }
+
       return ContinueSentinel;
     }
   };
 })(
-  // Among the various tricks for obtaining a reference to the global
-  // object, this seems to be the most reliable technique that does not
-  // use indirect eval (which violates Content Security Policy).
-  typeof global === "object" ? global :
-  typeof window === "object" ? window :
-  typeof self === "object" ? self : undefined
+  // In sloppy mode, unbound `this` refers to the global object, fallback to
+  // Function constructor if we're in global strict mode. That is sadly a form
+  // of indirect eval which violates Content Security Policy.
+  (function() { return this })() || Function("return this")()
 );
+
+'use strict';
+
+function __asyncGen(g) {
+  var q = [],
+      T = ["next", "throw", "return"],
+      I = {};
+
+  for (var i = 0; i < 3; i++) {
+    I[T[i]] = a.bind(0, i);
+  }
+
+  I[Symbol ? Symbol.asyncIterator || (Symbol.asyncIterator = Symbol()) : "@@asyncIterator"] = function () {
+    return this;
+  };
+
+  function a(t, v) {
+    return new Promise(function (s, j) {
+      q.push([s, j, v, t]);
+      q.length === 1 && c(v, t);
+    });
+  }
+
+  function c(v, t) {
+    try {
+      var r = g[T[t | 0]](v),
+          w = r.value && r.value.__await;
+      w ? Promise.resolve(w).then(c, d) : n(r, 0);
+    } catch (e) {
+      n(e, 1);
+    }
+  }
+
+  function d(e) {
+    c(e, 1);
+  }
+
+  function n(r, s) {
+    q.shift()[s](r);
+    q.length && c(q[0][2], q[0][3]);
+  }
+
+  return I;
+}
+
 /**
  * @method fn
  * @return {void}
  */
-var fn = Function.prototype;
 
+var fn = Function.prototype;
 /**
  * @method message
  * @param {String} message
  */
-var message = function message(_message) {
-  return 'OrderlyQueue: ' + _message + '.';
-};
 
+var message = function message(msg) {
+  return "OrderlyQueue: ".concat(msg, ".");
+};
 /**
  * @constant defaultOptions
  * @type {Object}
  */
-var defaultOptions = { value: null, next: fn, error: fn };
 
+
+var defaultOptions = {
+  value: null,
+  next: fn,
+  error: fn
+};
 /**
  * @param {Object} [value = null]
  * @param {Function} [next = Function.prototype]
  * @param {Function} [error = Function.prototype]
  * @return {Object}
  */
-var orderlyQueue = function () {
+
+function orderlyQueue () {
   var _ref = arguments.length > 0 && arguments[0] !== undefined ? arguments[0] : defaultOptions,
       _ref$value = _ref.value,
-      value = _ref$value === undefined ? null : _ref$value,
+      value = _ref$value === void 0 ? null : _ref$value,
       _ref$next = _ref.next,
-      next = _ref$next === undefined ? fn : _ref$next,
+      next = _ref$next === void 0 ? fn : _ref$next,
       _ref$error = _ref.error,
-      error = _ref$error === undefined ? fn : _ref$error;
+      error = _ref$error === void 0 ? fn : _ref$error;
 
   /**
-   * Initial task the yields the value that was passed in upon instantiation.
-   *
-   * @method initialTask
-   * @return {Promise}
-   */
+    * Initial task the yields the value that was passed in upon instantiation.
+    *
+    * @method initialTask
+    * @return {Promise}
+    */
   var initialTask = function initialTask() {
     return Promise.resolve(value);
   };
-
   /**
-   * @method queue
-   * @param {Function} createTask
-   * @param {Object} [props]
-   * @yield {void}
-   */
+    * @method queue
+    * @param {Function} createTask
+    * @param {Object} [props]
+    * @yield {void}
+    */
+
+
   function queue(createTask, props) {
-    return __asyncGen(regeneratorRuntime.mark(function _callee() {
+    return __asyncGen(
+    /*#__PURE__*/
+    regeneratorRuntime.mark(function _callee() {
       var result;
       return regeneratorRuntime.wrap(function _callee$(_context) {
         while (1) {
@@ -754,17 +840,16 @@ var orderlyQueue = function () {
             case 0:
               _context.prev = 0;
               _context.next = 3;
-              return { __await: createTask(props) };
+              return {
+                __await: createTask(props)
+              };
 
             case 3:
               result = _context.sent;
-
-
               // Publish the resolved value of the task to the subscription.
-              next(result);
-
-              // Recursively invoke the generator, passing in the props received from the last
+              next(result); // Recursively invoke the generator, passing in the props received from the last
               // invocation.
+
               _context.t0 = queue;
               _context.next = 8;
               return result;
@@ -772,7 +857,7 @@ var orderlyQueue = function () {
             case 8:
               _context.t1 = _context.sent;
               _context.t2 = result;
-              return _context.delegateYield((0, _context.t0)(_context.t1, _context.t2), 't3', 11);
+              return _context.delegateYield((0, _context.t0)(_context.t1, _context.t2), "t3", 11);
 
             case 11:
               _context.next = 22;
@@ -780,14 +865,11 @@ var orderlyQueue = function () {
 
             case 13:
               _context.prev = 13;
-              _context.t4 = _context['catch'](0);
-
-
+              _context.t4 = _context["catch"](0);
               // Publish the rejected value of the task to the subscription.
-              error(_context.t4);
-
-              // Any further invocations will simply continue from the last successful task, which
+              error(_context.t4); // Any further invocations will simply continue from the last successful task, which
               // allows recovery from any promise rejections.
+
               _context.t5 = queue;
               _context.next = 19;
               return _context.t4;
@@ -795,28 +877,27 @@ var orderlyQueue = function () {
             case 19:
               _context.t6 = _context.sent;
               _context.t7 = props;
-              return _context.delegateYield((0, _context.t5)(_context.t6, _context.t7), 't8', 22);
+              return _context.delegateYield((0, _context.t5)(_context.t6, _context.t7), "t8", 22);
 
             case 22:
-            case 'end':
+            case "end":
               return _context.stop();
           }
         }
       }, _callee, this, [[0, 13]]);
     })());
-  }
+  } // Initiate the async generator, and move the cursor to the first yield.
 
-  // Initiate the async generator, and move the cursor to the first yield.
+
   var iterator = queue(initialTask);
   iterator.next();
-
   /**
-   * @method process
-   * @param {Function} promiseFn
-   * @return {Promise}
-   */
-  var process = function process(promiseFn) {
+    * @method process
+    * @param {Function} promiseFn
+    * @return {Promise}
+    */
 
+  var process = function process(promiseFn) {
     if (typeof promiseFn !== 'function') {
       throw new Error(message('Passed in task to `queue` must be a function that yields a promise'));
     }
@@ -824,9 +905,12 @@ var orderlyQueue = function () {
     return iterator.next(promiseFn);
   };
 
-  return { process: process, abort: function abort() {
+  return {
+    process: process,
+    abort: function abort() {
       return iterator.return();
-    } };
-};
+    }
+  };
+}
 
 module.exports = orderlyQueue;
